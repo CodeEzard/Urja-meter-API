@@ -1,0 +1,20 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.har
+*.cookie
+*.cookies
+cookies.txt
+session.json
+tokens.json
+raw-captures/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+.vscode/
+.idea/
