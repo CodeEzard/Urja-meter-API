@@ -1,7 +1,5 @@
 # Urja Meter Ops API
 
-> **GitHub About:** Typed REST API over the legacy Urja Meter Ops smart meter portal with interval consumption deltas and grid hierarchy.
-
 A REST API wrapper around the legacy Urja Meter Ops portal (`https://urja-ops.flockenergy.tech`). It exposes clean JSON endpoints for smart meter metadata, 30-minute interval energy consumption, and the electrical distribution tree.
 
 ## Documentation links
