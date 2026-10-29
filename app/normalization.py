@@ -8,6 +8,8 @@ from app.models import (
     MeterDetail,
     EnergyReading,
     ConsumptionSummary,
+    PhaseType,
+    InstallStatus,
 )
 
 # Urja meters are located in Jaipur, India (IST: UTC +05:30)
@@ -50,7 +52,15 @@ def _normalize_hierarchy_node(raw_node: Optional[Dict[str, Any]]) -> Optional[Hi
     if not code and not name:
         return None
 
-    return HierarchyNode(code=code or "UNKNOWN", name=name or code or "Unknown Node")
+    flags = []
+    if not code:
+        flags.append("missing_code_fallback")
+        code = "UNKNOWN"
+    if not name:
+        flags.append("missing_name_fallback")
+        name = code or "Unknown Node"
+
+    return HierarchyNode(code=code, name=name, data_quality_flags=flags)
 
 
 def normalize_hierarchy(raw_h: Optional[Dict[str, Any]]) -> Optional[MeterHierarchy]:
@@ -73,12 +83,12 @@ def normalize_hierarchy(raw_h: Optional[Dict[str, Any]]) -> Optional[MeterHierar
 
 
 def normalize_meter(raw: Dict[str, Any]) -> MeterDetail:
-    """Transform raw portal meter dict into a strongly-typed MeterDetail model."""
+    """Transform raw portal meter dict into a typed MeterDetail model."""
     meter_id = raw.get("meterId") or raw.get("id") or ""
     serial_no = raw.get("serialNo") or raw.get("serial_number") or ""
     make = raw.get("make") or ""
-    phase_type = str(raw.get("phaseType") or raw.get("phase") or "single").lower()
-    install_status = raw.get("installStatus") or raw.get("install_status") or "Unknown"
+    phase_raw = str(raw.get("phaseType") or raw.get("phase") or "single").lower()
+    status_raw = raw.get("installStatus") or raw.get("install_status") or "Unknown"
     install_type = raw.get("installType") or raw.get("install_type")
     build = raw.get("build")
     dt_code = raw.get("dtCode") or raw.get("dt_code") or ""
@@ -86,17 +96,40 @@ def normalize_meter(raw: Dict[str, Any]) -> MeterDetail:
     coords = normalize_coordinates(raw.get("geo"))
     hierarchy = normalize_hierarchy(raw.get("hierarchy"))
 
+    flags: List[str] = []
+    if hierarchy:
+        for level in ("zone", "circle", "division", "subdivision", "substation", "feeder", "dt"):
+            node = getattr(hierarchy, level, None)
+            if node and node.data_quality_flags:
+                flags.extend(f"{level}:{f}" for f in node.data_quality_flags)
+
+    phase_enum = PhaseType.SINGLE
+    if phase_raw in ("single", "three"):
+        phase_enum = PhaseType(phase_raw)
+    else:
+        phase_enum = PhaseType.UNKNOWN
+        flags.append(f"unrecognized_phase:{phase_raw}")
+
+    status_enum = InstallStatus.UNKNOWN
+    for s in InstallStatus:
+        if s.value.lower() == str(status_raw).lower():
+            status_enum = s
+            break
+    if status_enum == InstallStatus.UNKNOWN:
+        flags.append(f"unrecognized_status:{status_raw}")
+
     return MeterDetail(
         id=str(meter_id),
         serial_number=str(serial_no),
         make=str(make),
-        phase=phase_type,
-        install_status=str(install_status),
+        phase=phase_enum,
+        install_status=status_enum,
         install_type=str(install_type) if install_type else None,
         build=str(build) if build else None,
         dt_code=str(dt_code),
         coordinates=coords,
         hierarchy=hierarchy,
+        data_quality_flags=flags,
     )
 
 

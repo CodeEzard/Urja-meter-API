@@ -5,7 +5,7 @@ from app.client import UrjaClient
 
 
 def test_hmac_signature_calculation():
-    secret = "I3dZPPf5CgTp7JyGNMI8i6z8LFR7TmSR"
+    secret = "test_signing_secret_for_hmac_tests"
     timestamp = "1793226769"
     message = f"GET\n/portal/export\npage=1\n{timestamp}"
     expected_sig = hmac.new(secret.encode("utf-8"), message.encode("utf-8"), hashlib.sha256).hexdigest()

@@ -145,3 +145,24 @@ def test_trigger_sync(test_app):
     data = response.json()
     assert data["status"] == "success"
     assert "meters_synced" in data
+
+
+def test_sync_rate_limit(test_app):
+    # First call succeeds
+    res1 = test_app.post("/api/v1/sync")
+    assert res1.status_code == 200
+
+    # Immediate second call within 60s should hit the cooldown and return 429
+    res2 = test_app.post("/api/v1/sync")
+    assert res2.status_code == 429
+    data = res2.json()
+    assert data["error"] == "rate_limited"
+
+
+def test_validation_error_shape(test_app):
+    # Invalid page number (less than 1) triggers validation error
+    response = test_app.get("/api/v1/meters?page=0")
+    assert response.status_code == 422
+    data = response.json()
+    assert data["error"] == "validation_error"
+    assert "message" in data

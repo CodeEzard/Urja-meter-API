@@ -1,9 +1,8 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 
 from app.dependencies import get_service
-from app.exceptions import ResourceNotFoundError
-from app.models import DistributionTransformer, DistributionTransformerDetail
+from app.models import DistributionTransformer, DistributionTransformerDetail, ErrorResponse
 from app.service import MeterService
 
 router = APIRouter(prefix="/api/v1/transformers", tags=["Transformers"])
@@ -12,6 +11,7 @@ router = APIRouter(prefix="/api/v1/transformers", tags=["Transformers"])
 @router.get(
     "",
     response_model=List[DistributionTransformer],
+    responses={502: {"model": ErrorResponse, "description": "Upstream communication error"}},
     summary="List distribution transformers",
     description="Retrieve distribution transformers (DTs), including capacity, feeder association, and count of connected meters.",
 )
@@ -25,6 +25,10 @@ async def list_transformers(
 @router.get(
     "/{code}",
     response_model=DistributionTransformerDetail,
+    responses={
+        404: {"model": ErrorResponse, "description": "Distribution transformer not found"},
+        502: {"model": ErrorResponse, "description": "Upstream communication error"},
+    },
     summary="Get transformer details",
     description="Retrieve details for a specific distribution transformer, including all assigned meter IDs.",
 )

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Urja Meter Ops Clean API",
-    "description": "Production-grade, typed REST API wrapper over the legacy Urja Meter Ops portal. Normalizes meter telemetry, calculates 30-minute interval consumption deltas, and reconstructs the electrical distribution grid hierarchy.",
+    "description": "REST API wrapper over the legacy Urja Meter Ops portal. Normalizes meter telemetry, calculates 30-minute interval consumption deltas, and reconstructs the distribution grid hierarchy.",
     "version": "1.0.0"
   },
   "paths": {
@@ -12,7 +12,7 @@
           "System"
         ],
         "summary": "Service health check",
-        "description": "Check the health of the API service, cache sync state, and upstream portal connectivity.",
+        "description": "Check the health of the API service, cache sync state, freshness, and upstream portal connectivity.",
         "operationId": "health_check_health_get",
         "responses": {
           "200": {
@@ -21,6 +21,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -34,14 +44,46 @@
           "System"
         ],
         "summary": "Trigger cache synchronization",
-        "description": "Force a sync of meters and transformers metadata from the upstream portal.",
+        "description": "Force a sync of meters and transformers metadata from the upstream portal. Capped to at most once per 60 seconds.",
         "operationId": "trigger_sync_api_v1_sync_post",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Cooldown period active (60s minimum interval)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream sync failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
@@ -100,16 +142,16 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/PhaseType"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Filter by phase: single or three",
+              "description": "Filter by electrical phase",
               "title": "Phase"
             },
-            "description": "Filter by phase: single or three"
+            "description": "Filter by electrical phase"
           },
           {
             "name": "status",
@@ -118,16 +160,16 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/InstallStatus"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Filter by operational status: Installed, Faulty, Decommissioned",
+              "description": "Filter by operational status",
               "title": "Status"
             },
-            "description": "Filter by operational status: Installed, Faulty, Decommissioned"
+            "description": "Filter by operational status"
           },
           {
             "name": "make",
@@ -187,11 +229,21 @@
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "Validation error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream communication error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -230,11 +282,31 @@
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "Validation error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Meter not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream communication error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -311,11 +383,31 @@
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "Validation error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Meter not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream communication error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -367,11 +459,21 @@
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "Validation error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream communication error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -410,11 +512,31 @@
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "Validation error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Distribution transformer not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream communication error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -436,9 +558,27 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Get Grid Hierarchy Api V1 Hierarchy Get"
+                  "$ref": "#/components/schemas/GridHierarchyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream sync failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -651,7 +791,7 @@
               }
             ],
             "title": "Voltage R",
-            "description": "R-phase voltage in volts",
+            "description": "Inferred R-phase voltage in volts RMS",
             "example": 222.0
           }
         },
@@ -663,18 +803,43 @@
         ],
         "title": "EnergyReading"
       },
-      "HTTPValidationError": {
+      "ErrorResponse": {
         "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "type": "array",
-            "title": "Detail"
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "description": "Machine-readable error identifier",
+            "example": "not_found"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable description of error",
+            "example": "Meter not found."
           }
         },
         "type": "object",
-        "title": "HTTPValidationError"
+        "required": [
+          "error",
+          "message"
+        ],
+        "title": "ErrorResponse"
+      },
+      "GridHierarchyResponse": {
+        "properties": {
+          "zones": {
+            "items": {
+              "$ref": "#/components/schemas/HierarchyZoneNode"
+            },
+            "type": "array",
+            "title": "Zones"
+          }
+        },
+        "type": "object",
+        "required": [
+          "zones"
+        ],
+        "title": "GridHierarchyResponse"
       },
       "HealthResponse": {
         "properties": {
@@ -708,6 +873,18 @@
               }
             ],
             "title": "Last Sync Timestamp"
+          },
+          "is_stale": {
+            "type": "boolean",
+            "title": "Is Stale",
+            "description": "Whether cached data exceeds configured TTL",
+            "default": false
+          },
+          "cache_ttl_seconds": {
+            "type": "integer",
+            "title": "Cache Ttl Seconds",
+            "description": "Configured cache TTL in seconds",
+            "default": 900
           }
         },
         "type": "object",
@@ -719,6 +896,115 @@
           "cached_transformers_count"
         ],
         "title": "HealthResponse"
+      },
+      "HierarchyCircleNode": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "divisions": {
+            "items": {
+              "$ref": "#/components/schemas/HierarchyDivisionNode"
+            },
+            "type": "array",
+            "title": "Divisions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "divisions"
+        ],
+        "title": "HierarchyCircleNode"
+      },
+      "HierarchyDTNode": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "meters": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Meters"
+          },
+          "meter_count": {
+            "type": "integer",
+            "title": "Meter Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "meters",
+          "meter_count"
+        ],
+        "title": "HierarchyDTNode"
+      },
+      "HierarchyDivisionNode": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "subdivisions": {
+            "items": {
+              "$ref": "#/components/schemas/HierarchySubdivisionNode"
+            },
+            "type": "array",
+            "title": "Subdivisions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "subdivisions"
+        ],
+        "title": "HierarchyDivisionNode"
+      },
+      "HierarchyFeederNode": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "transformers": {
+            "items": {
+              "$ref": "#/components/schemas/HierarchyDTNode"
+            },
+            "type": "array",
+            "title": "Transformers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "transformers"
+        ],
+        "title": "HierarchyFeederNode"
       },
       "HierarchyNode": {
         "properties": {
@@ -733,6 +1019,14 @@
             "title": "Name",
             "description": "Human-readable name",
             "example": "Malviya Nagar DT 1"
+          },
+          "data_quality_flags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Data Quality Flags",
+            "description": "Quality flags indicating repaired or fallback values"
           }
         },
         "type": "object",
@@ -742,13 +1036,101 @@
         ],
         "title": "HierarchyNode"
       },
+      "HierarchySubdivisionNode": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "substations": {
+            "items": {
+              "$ref": "#/components/schemas/HierarchySubstationNode"
+            },
+            "type": "array",
+            "title": "Substations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "substations"
+        ],
+        "title": "HierarchySubdivisionNode"
+      },
+      "HierarchySubstationNode": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "feeders": {
+            "items": {
+              "$ref": "#/components/schemas/HierarchyFeederNode"
+            },
+            "type": "array",
+            "title": "Feeders"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "feeders"
+        ],
+        "title": "HierarchySubstationNode"
+      },
+      "HierarchyZoneNode": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "circles": {
+            "items": {
+              "$ref": "#/components/schemas/HierarchyCircleNode"
+            },
+            "type": "array",
+            "title": "Circles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "circles"
+        ],
+        "title": "HierarchyZoneNode"
+      },
+      "InstallStatus": {
+        "type": "string",
+        "enum": [
+          "Installed",
+          "Faulty",
+          "Decommissioned",
+          "Unknown"
+        ],
+        "title": "InstallStatus"
+      },
       "MeterConsumptionResponse": {
         "properties": {
           "meter_id": {
             "type": "string",
             "title": "Meter Id"
           },
-          "from_date": {
+          "from": {
             "anyOf": [
               {
                 "type": "string"
@@ -757,9 +1139,10 @@
                 "type": "null"
               }
             ],
-            "title": "From Date"
+            "title": "From",
+            "description": "Query start date"
           },
-          "to_date": {
+          "to": {
             "anyOf": [
               {
                 "type": "string"
@@ -768,7 +1151,8 @@
                 "type": "null"
               }
             ],
-            "title": "To Date"
+            "title": "To",
+            "description": "Query end date"
           },
           "summary": {
             "$ref": "#/components/schemas/ConsumptionSummary"
@@ -810,14 +1194,12 @@
             "example": "HPL"
           },
           "phase": {
-            "type": "string",
-            "title": "Phase",
+            "$ref": "#/components/schemas/PhaseType",
             "description": "Electrical phase: single or three",
             "example": "single"
           },
           "install_status": {
-            "type": "string",
-            "title": "Install Status",
+            "$ref": "#/components/schemas/InstallStatus",
             "description": "Operational status: Installed, Faulty, Decommissioned",
             "example": "Installed"
           },
@@ -844,7 +1226,7 @@
               }
             ],
             "title": "Build",
-            "description": "Hardware revision build",
+            "description": "Hardware revision or build tag from portal (unconfirmed by portal documentation)",
             "example": "legacy"
           },
           "dt_code": {
@@ -872,6 +1254,14 @@
                 "type": "null"
               }
             ]
+          },
+          "data_quality_flags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Data Quality Flags",
+            "description": "Quality flags for anomalies found in portal record"
           }
         },
         "type": "object",
@@ -982,14 +1372,12 @@
             "example": "HPL"
           },
           "phase": {
-            "type": "string",
-            "title": "Phase",
+            "$ref": "#/components/schemas/PhaseType",
             "description": "Electrical phase: single or three",
             "example": "single"
           },
           "install_status": {
-            "type": "string",
-            "title": "Install Status",
+            "$ref": "#/components/schemas/InstallStatus",
             "description": "Operational status: Installed, Faulty, Decommissioned",
             "example": "Installed"
           },
@@ -1016,7 +1404,7 @@
               }
             ],
             "title": "Build",
-            "description": "Hardware revision build",
+            "description": "Hardware revision or build tag from portal (unconfirmed by portal documentation)",
             "example": "legacy"
           },
           "dt_code": {
@@ -1083,38 +1471,58 @@
         ],
         "title": "PaginatedResponse[MeterSummary]"
       },
-      "ValidationError": {
+      "PhaseType": {
+        "type": "string",
+        "enum": [
+          "single",
+          "three",
+          "unknown"
+        ],
+        "title": "PhaseType"
+      },
+      "SyncResponse": {
         "properties": {
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "type": "array",
-            "title": "Location"
-          },
-          "msg": {
+          "status": {
             "type": "string",
-            "title": "Message"
+            "title": "Status",
+            "example": "success"
           },
-          "type": {
+          "message": {
             "type": "string",
-            "title": "Error Type"
+            "title": "Message",
+            "example": "Data synchronized successfully from Urja portal."
+          },
+          "meters_synced": {
+            "type": "integer",
+            "title": "Meters Synced",
+            "example": 403
+          },
+          "transformers_synced": {
+            "type": "integer",
+            "title": "Transformers Synced",
+            "example": 20
+          },
+          "synced_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Synced At",
+            "example": "2026-10-29T12:00:00Z"
           }
         },
         "type": "object",
         "required": [
-          "loc",
-          "msg",
-          "type"
+          "status",
+          "message",
+          "meters_synced",
+          "transformers_synced"
         ],
-        "title": "ValidationError"
+        "title": "SyncResponse"
       }
     }
   }

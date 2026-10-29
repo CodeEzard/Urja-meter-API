@@ -1,9 +1,16 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 
 from app.dependencies import get_service
-from app.exceptions import ResourceNotFoundError
-from app.models import MeterDetail, MeterSummary, MeterConsumptionResponse, PaginatedResponse
+from app.models import (
+    ErrorResponse,
+    InstallStatus,
+    MeterDetail,
+    MeterSummary,
+    MeterConsumptionResponse,
+    PaginatedResponse,
+    PhaseType,
+)
 from app.service import MeterService
 
 router = APIRouter(prefix="/api/v1/meters", tags=["Meters"])
@@ -12,14 +19,15 @@ router = APIRouter(prefix="/api/v1/meters", tags=["Meters"])
 @router.get(
     "",
     response_model=PaginatedResponse[MeterSummary],
+    responses={502: {"model": ErrorResponse, "description": "Upstream communication error"}},
     summary="List and filter smart meters",
     description="Retrieve a paginated list of smart meters with optional filtering by query, DT code, phase, status, or make.",
 )
 async def list_meters(
     q: Optional[str] = Query(None, description="Free text search across ID, serial number, make, or DT code"),
     dt_code: Optional[str] = Query(None, description="Filter by Distribution Transformer code (e.g. DT-001)"),
-    phase: Optional[str] = Query(None, description="Filter by phase: single or three"),
-    status_filter: Optional[str] = Query(None, alias="status", description="Filter by operational status: Installed, Faulty, Decommissioned"),
+    phase: Optional[PhaseType] = Query(None, description="Filter by electrical phase"),
+    status_filter: Optional[InstallStatus] = Query(None, alias="status", description="Filter by operational status"),
     make: Optional[str] = Query(None, description="Filter by meter manufacturer (e.g. HPL, L&T, Genus, Secure, Allied)"),
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page (max 100)"),
@@ -28,8 +36,8 @@ async def list_meters(
     return await service.list_meters(
         query=q,
         dt_code=dt_code,
-        phase=phase,
-        status=status_filter,
+        phase=phase.value if phase else None,
+        status=status_filter.value if status_filter else None,
         make=make,
         page=page,
         page_size=page_size,
@@ -39,6 +47,10 @@ async def list_meters(
 @router.get(
     "/{meter_id}",
     response_model=MeterDetail,
+    responses={
+        404: {"model": ErrorResponse, "description": "Meter not found"},
+        502: {"model": ErrorResponse, "description": "Upstream communication error"},
+    },
     summary="Get meter details",
     description="Retrieve full details for a single meter, including normalized geo coordinates and full 7-level electrical hierarchy.",
 )
@@ -52,6 +64,10 @@ async def get_meter(
 @router.get(
     "/{meter_id}/consumption",
     response_model=MeterConsumptionResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "Meter not found"},
+        502: {"model": ErrorResponse, "description": "Upstream communication error"},
+    },
     summary="Get interval energy consumption",
     description=(
         "Retrieve 30-minute interval readings for a meter. "

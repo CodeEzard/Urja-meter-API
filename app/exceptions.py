@@ -1,5 +1,5 @@
 class PortalException(Exception):
-    """Base exception for upstream portal interactions."""
+    """Base exception for portal interactions."""
     pass
 
 
@@ -16,5 +16,10 @@ class PortalRequestError(PortalException):
 
 
 class ResourceNotFoundError(PortalException):
-    """Raised when a requested resource (e.g., meter, transformer) is not found."""
+    """Raised when a requested resource is not found."""
+    pass
+
+
+class SyncRateLimitError(PortalException):
+    """Raised when manual sync is requested before cooldown expires."""
     pass

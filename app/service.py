@@ -4,10 +4,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.client import UrjaClient
 from app.config import settings
-from app.exceptions import ResourceNotFoundError
+from app.exceptions import ResourceNotFoundError, SyncRateLimitError
 from app.models import (
     DistributionTransformer,
     DistributionTransformerDetail,
+    GridHierarchyResponse,
     MeterDetail,
     MeterSummary,
     MeterConsumptionResponse,
@@ -30,9 +31,17 @@ class MeterService:
         self._sync_lock = asyncio.Lock()
         self.started_at: float = time.time()
 
+    MIN_SYNC_COOLDOWN_SECONDS: int = 60
+
     @property
     def is_synced(self) -> bool:
         return bool(self._meters)
+
+    @property
+    def is_stale(self) -> bool:
+        if not self._last_synced_at:
+            return True
+        return (time.time() - self._last_synced_at) > settings.cache_ttl_seconds
 
     @property
     def last_synced_at_iso(self) -> Optional[str]:
@@ -44,6 +53,10 @@ class MeterService:
         """Synchronize meters and transformers cache if expired or empty."""
         async with self._sync_lock:
             now = time.time()
+            if force and self._last_synced_at and (now - self._last_synced_at) < self.MIN_SYNC_COOLDOWN_SECONDS:
+                remaining = int(self.MIN_SYNC_COOLDOWN_SECONDS - (now - self._last_synced_at))
+                raise SyncRateLimitError(f"Manual sync allowed at most once every 60 seconds. Please wait {remaining}s.")
+
             if not force and self._last_synced_at and (now - self._last_synced_at) < settings.cache_ttl_seconds:
                 return
 
@@ -180,7 +193,7 @@ class MeterService:
             readings=readings,
         )
 
-    async def get_hierarchy_tree(self) -> Dict[str, Any]:
+    async def get_hierarchy_tree(self) -> GridHierarchyResponse:
         """Construct a complete nested tree of the distribution network down to meters."""
         await self.ensure_synced()
 
@@ -247,4 +260,4 @@ class MeterService:
         formatted_zones = [
             format_node(z, "circles") for z in sorted(tree.values(), key=lambda x: x["code"])
         ]
-        return {"zones": formatted_zones}
+        return GridHierarchyResponse.model_validate({"zones": formatted_zones})

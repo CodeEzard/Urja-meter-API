@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
 import logging
 from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.dependencies import get_client, get_service
 from app.exceptions import PortalAuthError, PortalRequestError, ResourceNotFoundError
+from app.models import ErrorResponse
 from app.routes import health_router, hierarchy_router, meters_router, transformers_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -34,27 +36,49 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Urja Meter Ops Clean API",
     description=(
-        "Production-grade, typed REST API wrapper over the legacy Urja Meter Ops portal. "
+        "REST API wrapper over the legacy Urja Meter Ops portal. "
         "Normalizes meter telemetry, calculates 30-minute interval consumption deltas, "
-        "and reconstructs the electrical distribution grid hierarchy."
+        "and reconstructs the distribution grid hierarchy."
     ),
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    responses={
+        422: {"model": ErrorResponse, "description": "Validation error"},
+    },
 )
 
-# Enable CORS for browser-based dashboards
+# Restrict CORS to local development origins (no wildcard)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
+
 # Exception handlers
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = exc.errors()
+    msg = "; ".join(
+        f"{'.'.join(str(loc) for loc in err.get('loc', []))}: {err.get('msg', '')}"
+        for err in errors
+    )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"error": "validation_error", "message": msg},
+    )
+
+
 @app.exception_handler(ResourceNotFoundError)
 async def resource_not_found_handler(request: Request, exc: ResourceNotFoundError):
     return JSONResponse(
