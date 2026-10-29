@@ -1,71 +1,102 @@
 # PROTOCOL.md
 
-How the Urja Meter Ops portal (`https://urja-ops.flockenergy.tech`) actually works, as I found it. I kept to about 1 request per second, used read requests only after login, and used IDs the portal gave me.
+How the Urja Meter Ops portal (`https://urja-ops.flockenergy.tech`) works, as I found it. Findings are tagged **[OBSERVED]** (verified with curl or tests) or **[INFERRED]** (deduced from evidence, not directly verified).
 
-`$BASE` is the portal URL and `$TOKEN` is the session cookie value from a fresh login.
+Meter data appears synthetic; no real credentials, session cookies, or signing secrets are in this repository.
 
-## Part 1: Exploring the platform
+## What the portal offers
 
-- **Meters page:** a search box and a table of 403 meters (20 per page: ID, serial, make, phase, install status, DT code). Opening a meter shows its nameplate, location, a 7-level hierarchy (Zone down to DT) and a table of 30-minute consumption readings.
-- **Transformers page:** a table of DTs (code, name, feeder, capacity in kVA).
-- **Export:** the Transformers page has an "Export all meters" button that downloads every meter in one go.
+The portal has three main sections:
+- **Meters page:** Search box and a table of 403 meters (20 per page). Opening a meter shows its nameplate, coordinates, a 7-level hierarchy, and 30-minute interval readings.
+- **Transformers page:** A table of 20 distribution transformers (DTs) with code, name, feeder, and capacity.
+- **Export button:** A button on the Transformers page that downloads all 403 meters in one file.
 
-## Part 2: What I saw in the Network tab
+## Access and authentication
 
-- **Before logging in,** the `/login` page already gives away the architecture. Its HTML loads the SvelteKit entry bundles (`/_app/immutable/entry/start...js` and `app...js`), and the route map inside lists every page: `/login`, `/meters`, `/meters/[id]` and `/transformers`. I got this without any cookie (`curl -s "$BASE/login"`).
-- The pages load their data from a JSON API under `/portal/...`: `meters/search`, `meters/{id}/geo`, `meters/{id}/energy`, `dts`, `keys` and `export`. The meter detail page also uses a SvelteKit loader (`/meters/{id}/__data.json`).
-- Login is a form POST to `/login`. It sets an HttpOnly cookie, `__Secure-better-auth.session_token`, with `Max-Age=3600`. It isn't a JWT.
-- The meter list is fixed at 20 rows per page, and there are no sort controls.
-- "Export all meters" first fetches a signing secret from `/portal/keys`, then calls `/portal/export` with `x-timestamp` and `x-signature` headers. I worked out the signature from the portal's JS: HMAC-SHA256 over `GET\n/portal/export\npage=1\n{timestamp}`.
-- Numbers arrive as strings, and timestamps look like `23/06/2026 23:30` with no timezone.
+- **Architecture [OBSERVED]:** The frontend is SvelteKit. Route definitions (`/login`, `/meters`, `/meters/[id]`, `/transformers`) are visible in the public JS bundle (`/_app/immutable/entry/start...js`).
+- **Login [OBSERVED]:** POST to `/login` with `Origin: https://urja-ops.flockenergy.tech` and `x-sveltekit-action: true`. Payload is form-encoded `email` and `password`.
+- **Session cookie [OBSERVED]:** Returns 200 with JSON `{"type":"redirect","status":303,"location":"/meters"}` and sets an HttpOnly cookie named `__Secure-better-auth.session_token` with `Max-Age=3600`.
+- **Session lifecycle [INFERRED]:** The cookie indicates a 60-minute lifetime. Server-side revocation at 3600 seconds is inferred. An invalid cookie returns 401 `{"error":"unauthorized","message":"A valid session is required."}` **[OBSERVED]**.
+- **Concurrent sessions [INFERRED]:** Whether a second login revokes the first session is untested.
 
-## Part 3: Confirming with curl
+## Endpoint reference
 
-Login (needs `Origin` and `x-sveltekit-action`):
+All JSON endpoints live under `/portal/` and require the session cookie.
+
+| Method | Path | Auth / Headers | Returns | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| `POST` | `/login` | `Origin`, `x-sveltekit-action: true` | `200` + session cookie | Form POST. Redirects to `/meters`. |
+| `GET` | `/portal/meters/search` | Session cookie | JSON (`data`, `total`: 403) | 20 meters/page (`q=`, `page=1..21`). Case-insensitive partial search. |
+| `GET` | `/portal/meters/{id}/geo` | Session cookie | JSON (`latitude`, `longitude`) | Coordinates as strings. Returns 404 for missing meter. |
+| `GET` | `/portal/meters/{id}/energy` | Session cookie | JSON (`data`: cumulative rows) | Query params `from` and `to` (`YYYY-MM-DD`). Max 1440 rows. |
+| `GET` | `/portal/dts` | Session cookie | JSON (`data`: 20 DTs) | Code, name, feederCode, capacityKva. |
+| `GET` | `/portal/keys` | Session cookie | JSON (`data.signingSecret`) | Returns HMAC signing secret for export. |
+| `GET` | `/portal/export` | Cookie, `x-timestamp`, `x-signature` | JSON (`data`: 403 meters) | Returns all 403 meters with coordinates and hierarchy. |
+| `GET` | `/meters/{id}/__data.json` | Session cookie | SvelteKit JSON | Frontend loader. Returns 200 with error object on 404. |
+
+## Formats and units
+
+- **Cumulative registers [OBSERVED]:** `kwh` and `kvah` are cumulative register totals as decimal strings. Interval consumption is the difference between two readings: `kwh_t - kwh_{t-1}`. On meter J100000 across 336 intervals, no delta was negative, and every apparent energy delta was greater than or equal to the real energy delta. The first delta in any window is null because it lacks an earlier baseline. Behavior across all other 402 meters is inferred **[INFERRED]**.
+- **Timestamps [INFERRED]:** Strings formatted as `DD/MM/YYYY HH:mm` at interval end. Local time is inferred to be IST (+05:30) because the meters are in Jaipur.
+- **Voltage [INFERRED]:** `voltR` is inferred to be Volts RMS on the R-phase based on the observed ~220-240V range.
+- **Date ranges [OBSERVED]:** `from` and `to` require `YYYY-MM-DD`. The `to` parameter is inclusive through 23:30 (requesting one day returns 48 rows, two days returns 96 rows). Non-ISO dates fallback silently to the 7-day default.
+- **Coordinates [OBSERVED]:** Strings on `/geo` (`latitude`, `longitude`), numbers on `/export` (`lat`, `lng`).
+- **Hierarchy [OBSERVED]:** Casing varies (`Sub Station` vs `substation`), some names are blank, and Substation 16 has two distinct codes.
+
+## Why use the export endpoint
+
+The search endpoint (`/portal/meters/search`) only returns basic nameplate fields. It omits coordinates and electrical hierarchy entirely. No `/portal/` hierarchy endpoint exists; hierarchy only appears in SvelteKit's `__data.json` loaders.
+
+Fetching the full dataset without `/portal/export` requires:
+- 21 search requests to collect meter IDs
+- 403 requests to `/meters/{id}/__data.json` for hierarchy and coordinates
+
+That is 424 HTTP requests. Paced at 1 request per second, it takes over 7 minutes. In contrast, the signed `/portal/export` endpoint returns all 403 meters with coordinates and hierarchy in 1 request[OBSERVED].
+
+## Quirks and implementation notes
+
+- **HMAC signature [OBSERVED]:** `/portal/export` requires `x-timestamp` and `x-signature` headers:
+```
+HMAC-SHA256(key=data.signingSecret, data="GET\n/portal/export\npage=1\n" + timestamp)
+```
+The timestamp must be integer UNIX epoch seconds (10 digits). Millisecond timestamps return 401 `signature_invalid`.
+- **Export ignores page [OBSERVED]:** Calling `/portal/export?page=2` returns the exact same 403 meters as `page=1`.
+- **Open signing key [OBSERVED]:** `/portal/keys` gives the secret to any authenticated session.
+- **Missing resources [OBSERVED]:** Nonexistent meters on `/geo` and `/energy` return 404 JSON `{"error":"not_found","message":"Meter not found"}`. SvelteKit `__data.json` returns 200 with an error payload. The portal has no `/portal/dts/{code}` route; calling one returns SvelteKit's default HTML 404 page.
+
+## Open questions
+
+1. Whether the server revokes the session after 3600 seconds or allows a sliding window.
+2. How often `signingSecret` rotates, if ever.
+3. The server's clock-skew tolerance on `x-timestamp`.
+
+## How to reproduce
+
+Set `$BASE="https://urja-ops.flockenergy.tech"` and export `$URJA_USERNAME` and `$URJA_PASSWORD`. All calls used IDs the portal gave me, apart from one deliberately invalid ID to test 404 responses.
+
 ```bash
-curl -si -X POST "$BASE/login" -H "Content-Type: application/x-www-form-urlencoded" -H "Origin: $BASE" -H "x-sveltekit-action: true" -d "email=$URJA_EMAIL&password=$URJA_PASSWORD"
+# 1. Login and get session cookie
+curl -si -X POST "$BASE/login" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -H "Origin: $BASE" \
+  -H "x-sveltekit-action: true" \
+  -d "email=$URJA_USERNAME&password=$URJA_PASSWORD"
+
+# 2. Get signing secret, calculate signature, and export all meters
+SECRET=$(curl -s "$BASE/portal/keys" -H "Cookie: __Secure-better-auth.session_token=$COOKIE" | jq -r '.data.signingSecret')
+TS=$(date +%s)
+SIG=$(printf "GET\n/portal/export\npage=1\n$TS" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')
+
+curl -s "$BASE/portal/export?page=1" \
+  -H "Cookie: __Secure-better-auth.session_token=$COOKIE" \
+  -H "x-timestamp: $TS" \
+  -H "x-signature: $SIG"
+
+# 3. Fetch 30-minute energy intervals
+curl -s "$BASE/portal/meters/J100000/energy?from=2026-06-25&to=2026-06-26" \
+  -H "Cookie: __Secure-better-auth.session_token=$COOKIE"
+
+# 4. Verify 404 on missing meter
+curl -si "$BASE/portal/meters/NONEXISTENT_999999/energy" \
+  -H "Cookie: __Secure-better-auth.session_token=$COOKIE"
 ```
-Returns 200 with a redirect inside the JSON and the session cookie. Reads only need that cookie.
-
-Search and pagination:
-```bash
-curl -s "$BASE/portal/meters/search?q=&page=1" -H "Cookie: __Secure-better-auth.session_token=$TOKEN"
-```
-403 meters, 20 per page, sorted by ID, no gaps or duplicates across 21 pages. Search is case-insensitive and partial.
-
-Energy readings:
-```bash
-curl -s "$BASE/portal/meters/J100000/energy?from=2026-06-25&to=2026-06-26" -H "Cookie: __Secure-better-auth.session_token=$TOKEN"
-```
-30-minute cumulative readings, 7 days by default and 1440 at most. `from`/`to` only work as `YYYY-MM-DD` and anything else is silently ignored.
-
-Bulk export (signed):
-```bash
-curl -s "$BASE/portal/export?page=1" -H "Cookie: __Secure-better-auth.session_token=$TOKEN" -H "x-timestamp: $TS" -H "x-signature: $SIG"
-```
-One call returns all 403 meters with hierarchy and coordinates, and an invalid signature gives 401.
-
-Not found:
-```bash
-curl -si "$BASE/portal/meters/NONEXISTENT_METER_999999/geo" -H "Cookie: __Secure-better-auth.session_token=$TOKEN"
-```
-404 JSON here, but the `__data.json` route returns 200 with the error inside.
-
-## Energy data and what I assume it means
-
-```json
-{"data":[{"timestamp":"23/06/2026 23:30","kwh":"48438.74","kvah":"52313.84","voltR":"226"}]}
-```
-- `kwh` and `kvah` are cumulative register readings, so usage in an interval is the difference between two readings. I checked that they only go up and that the differences add up (48580.79 - 48438.74 = 142.05 kWh).
-- The timestamp is local time (IST, +05:30) at the end of the interval. The portal doesn't say so, I'm assuming it because the meters are in Jaipur and no offset is given.
-
-## Quirks that surprised me
-
-- `/portal/keys` hands the export signing secret to any logged-in user, so the signature doesn't really protect anything.
-- Geo is `latitude`/`longitude` strings from `/geo` but `lat`/`lng` numbers in the export. Hierarchy labels differ too (`Sub Station` vs `substation`).
-- The hierarchy data is messy: some nodes have an empty name or code, and `Substation 16` appears with two codes.
-- Page size overrides and non-ISO dates are ignored silently, with no error.
-
-## Not checked yet
-
-What happens after the one-hour session, whether sign-out kills the cookie, and whether the 7-day and 30-day windows are measured from the latest data or from today.
